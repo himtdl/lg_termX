@@ -26,7 +26,7 @@ const manager = new TerminalManager();
 
 const server = new McpServer({
   name: "lg_termX",
-  version: "1.0.0",
+  version: "1.0.2",
 });
 
 // ============================================================
@@ -37,7 +37,7 @@ server.registerTool(
   {
     title: "创建终端",
     description:
-      "创建一个新的持久化终端会话。PTY 模式（默认）：本地 cmd/powershell；SSH2 模式：通过 ssh2 库连接远程主机（支持密码认证）。默认空闲5分钟后自动关闭。",
+      "创建一个新的持久化终端会话。PTY 模式（默认）：本地 cmd/powershell；SSH2 模式：通过 ssh2 库连接远程主机（支持密码认证）。默认空闲5分钟后自动关闭。\n⚠️ 使用完毕后务必调用 kill_terminal 关闭终端，避免资源泄漏和内存占用。",
     inputSchema: {
       name: z
         .string()
@@ -295,7 +295,7 @@ server.registerTool(
   {
     title: "发送命令",
     description:
-      "向当前选中的终端发送一条命令，等待指定时间后返回命令输出。适用于需要连续交互的场景（如 SSH 登录后逐步输入命令）。",
+      "向当前选中的终端发送一条命令，等待指定时间后返回命令输出。适用于需要连续交互的场景（如 SSH 登录后逐步输入命令）。\n⚠️ 命令执行完毕后请调用 kill_terminal 或 kill_all_terminals 清理终端会话，不要保留空闲终端。",
     inputSchema: {
       command: z.string().describe("要执行的命令"),
       wait_ms: z

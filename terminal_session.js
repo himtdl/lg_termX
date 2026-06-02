@@ -16,8 +16,41 @@
 import { spawn as nodeSpawn } from "child_process";
 import { spawn as ptySpawn } from "node-pty";
 import { Client } from "ssh2";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const OUTPUT_SEPARATOR = "\n=====TERM_CMD_BOUNDARY=====\n";
+
+/**
+ * 获取格式化时间字符串（用于日志）
+ * @param {Date} [date]
+ * @returns {string} HH:mm:ss
+ */
+function fmtTime(date = new Date()) {
+  return date.toTimeString().slice(0, 8);
+}
+
+/**
+ * 安全解码 buffer：优先 UTF-8，含替换字符时回退 GBK
+ * @param {Buffer|string} buf
+ * @returns {string}
+ */
+function safeDecode(buf) {
+  if (typeof buf === "string") return buf;
+  const str = buf.toString("utf-8");
+  if (str.indexOf("\ufffd") >= 0) {
+    try {
+      return new TextDecoder("gbk").decode(buf);
+    } catch {
+      return str;
+    }
+  }
+  return str;
+}
 
 /**
  * 生成唯一的命令结束标记
@@ -79,6 +112,12 @@ export class TerminalSession {
     this._sshPendingCommand = "";
     this._sshBooting = true;
     this._sshHistory = [];
+
+    // —— 日志 ——
+    this._logPath = null;
+    /** @type {fs.WriteStream|null} */
+    this._logStream = null;
+    this._initLog();
   }
 
   /**
@@ -89,6 +128,59 @@ export class TerminalSession {
       return this._startSsh2();
     }
     return this._startPty();
+  }
+
+  // ════════════════════════════════════════════════
+  //  日志系统
+  // ════════════════════════════════════════════════
+
+  /**
+   * 初始化日志文件
+   */
+  _initLog() {
+    try {
+      const logDir = path.join(__dirname, "log");
+      if (!fs.existsSync(logDir)) {
+        fs.mkdirSync(logDir, { recursive: true });
+      }
+      const ts = new Date()
+        .toISOString()
+        .replace(/[:.]/g, "-")
+        .replace("T", "_")
+        .slice(0, 19);
+      const safeName = this.name.replace(/[\\/:*?"<>|]/g, "_");
+      this._logPath = path.join(logDir, `${safeName}_${ts}.log`);
+      this._logStream = fs.createWriteStream(this._logPath, { flags: "a" });
+      this._writeLog(`[lg_termX v1.0.2] 终端 "${this.name}" 日志开始 (引擎: ${this._engine})`);
+    } catch (e) {
+      console.error(`[lg_termX] 日志初始化失败: ${e.message}`);
+    }
+  }
+
+  /**
+   * 写入日志
+   * @param {string} line
+   */
+  _writeLog(line) {
+    if (!this._logStream) return;
+    try {
+      this._logStream.write(`[${fmtTime()}] ${line}\n`);
+    } catch {
+      // 日志写入失败不影响主流程
+    }
+  }
+
+  /**
+   * 关闭日志流
+   */
+  _closeLog() {
+    if (this._logStream) {
+      try {
+        this._writeLog(`[关闭] 终端 "${this.name}" 日志结束`);
+        this._logStream.end();
+      } catch {}
+      this._logStream = null;
+    }
   }
 
   // ════════════════════════════════════════════════
@@ -112,13 +204,17 @@ export class TerminalSession {
 
       try {
         let ptyProcess;
+        let bootCmd = "";
 
         if (shell === "cmd.exe" || shell === "cmd") {
           ptyProcess = ptySpawn("cmd.exe", [], ptyOptions);
+          bootCmd = "chcp 65001 > nul\r\n";
         } else if (shell === "powershell.exe" || shell === "powershell") {
           ptyProcess = ptySpawn("powershell.exe", ["-NoLogo", "-NoExit"], ptyOptions);
+          bootCmd = "$OutputEncoding = [Console]::OutputEncoding = [System.Text.Encoding]::UTF8\r\n";
         } else {
           ptyProcess = ptySpawn("cmd.exe", ["/k", shell], ptyOptions);
+          bootCmd = "chcp 65001 > nul\r\n";
         }
 
         this._ptyProcess = ptyProcess;
@@ -129,19 +225,28 @@ export class TerminalSession {
         this.lastCommandOutput = "";
 
         ptyProcess.onData((data) => {
-          this.outputBuffer.push(data);
+          const decoded = safeDecode(data);
+          this.outputBuffer.push(decoded);
+          this._writeLog(`<<< ${decoded.trimEnd()}`);
           this.lastActivityTime = Date.now();
         });
 
         ptyProcess.onExit(({ exitCode, signal }) => {
           const reason = signal ? `信号: ${signal}` : `退出码: ${exitCode}`;
           this.outputBuffer.push(`\n[进程已退出，${reason}]\n`);
+          this._writeLog(`[进程退出] ${reason}`);
           this.isRunning = false;
           this.pid = null;
           this._ptyProcess = null;
         });
 
-        setTimeout(() => resolve(), 500);
+        // 注入 UTF-8 编码切换命令
+        if (bootCmd) {
+          ptyProcess.write(bootCmd);
+          this._writeLog(">>> [系统] 注入UTF-8编码切换");
+        }
+
+        setTimeout(() => resolve(), 1000);
       } catch (err) {
         reject(err);
       }
@@ -246,6 +351,8 @@ export class TerminalSession {
 
                   this.lastCommandOutput = combined;
 
+                  this._writeLog(`<<< ${combined.trimEnd()}`);
+
                   // 重置缓冲区
                   this._sshStdout = "";
                   this._sshStderr = "";
@@ -316,6 +423,7 @@ export class TerminalSession {
    * @returns {Promise<string>}
    */
   sendCommand(command, waitMs = 2000) {
+    this._writeLog(`>>> ${command}`);
     if (this._engine === "ssh2") {
       return this._sendSsh2(command);
     }
@@ -457,6 +565,11 @@ export class TerminalSession {
 
   kill() {
     return new Promise((resolve) => {
+      const done = () => {
+        this._closeLog();
+        resolve();
+      };
+
       if (this._engine === "ssh2") {
         // SSH2 清理
         try {
@@ -473,7 +586,7 @@ export class TerminalSession {
         this.pid = null;
         this._sshClient = null;
         this._sshShell = null;
-        return resolve();
+        return done();
       }
 
       // PTY 清理
@@ -481,7 +594,7 @@ export class TerminalSession {
         this.isRunning = false;
         this.pid = null;
         this._ptyProcess = null;
-        return resolve();
+        return done();
       }
 
       if (this.pid) {
@@ -491,14 +604,14 @@ export class TerminalSession {
             this.isRunning = false;
             this.pid = null;
             this._ptyProcess = null;
-            resolve();
+            done();
           });
           setTimeout(() => {
             if (this.isRunning) {
               this.isRunning = false;
               this.pid = null;
               this._ptyProcess = null;
-              resolve();
+              done();
             }
           }, 3000);
         } catch {
@@ -506,12 +619,12 @@ export class TerminalSession {
           this.isRunning = false;
           this.pid = null;
           this._ptyProcess = null;
-          resolve();
+          done();
         }
       } else {
         this.isRunning = false;
         this._ptyProcess = null;
-        resolve();
+        done();
       }
     });
   }
@@ -529,6 +642,7 @@ export class TerminalSession {
       uptime: this.getUptime(),
       createdAt: new Date(this.createdAt).toISOString(),
       outputLength: this.outputBuffer.length,
+      logPath: this._logPath,
     };
   }
 }
