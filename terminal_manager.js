@@ -251,6 +251,15 @@ export class TerminalManager {
   }
 
   /**
+   * 向当前终端发送控制键
+   * @param {string} key
+   * @returns {string}
+   */
+  sendKeyToCurrent(key) {
+    return this._getCurrentSession().sendKey(key);
+  }
+
+  /**
    * 清空当前终端输出
    */
   clearCurrentOutput() {

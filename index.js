@@ -26,7 +26,7 @@ const manager = new TerminalManager();
 
 const server = new McpServer({
   name: "lg_termX",
-  version: "1.0.3",
+  version: "1.0.4",
 });
 
 // ============================================================
@@ -439,7 +439,42 @@ server.registerTool(
 );
 
 // ============================================================
-// 工具 10: get_current_terminal — 获取当前终端名称
+// 工具 10: send_key — 发送控制键
+// ============================================================
+server.registerTool(
+  "send_key",
+  {
+    title: "发送控制键",
+    description:
+      "向当前终端发送控制键/组合键/文本。用于打断卡死命令（Ctrl+C）、退出交互程序、输入方向键等。不等待返回结果，立即响应。",
+    inputSchema: {
+      key: z
+        .string()
+        .describe(
+          "按键名称。支持: ctrl+a~z, enter, tab, esc, backspace, space, up/down/left/right, home/end/pgup/pgdn/insert/delete, text:自定义文本"
+        ),
+    },
+    outputSchema: { result: z.string() },
+    annotations: { readOnlyHint: false, destructiveHint: true },
+  },
+  async (args) => {
+    try {
+      const result = manager.sendKeyToCurrent(args.key);
+      return {
+        content: [{ type: "text", text: `已发送按键: "${args.key}"` }],
+        structuredContent: { result },
+      };
+    } catch (e) {
+      return {
+        content: [{ type: "text", text: `发送失败: ${e.message}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// ============================================================
+// 工具 11: get_current_terminal — 获取当前终端名称
 // ============================================================
 server.registerTool(
   "get_current_terminal",
@@ -478,7 +513,7 @@ server.registerTool(
 );
 
 // ============================================================
-// 工具 11: rename_terminal — 重命名终端
+// 工具 12: rename_terminal — 重命名终端
 // ============================================================
 server.registerTool(
   "rename_terminal",
@@ -519,7 +554,7 @@ server.registerTool(
 );
 
 // ============================================================
-// 工具 12: get_terminal_info — 获取终端详细信息
+// 工具 13: get_terminal_info — 获取终端详细信息
 // ============================================================
 server.registerTool(
   "get_terminal_info",
@@ -580,7 +615,7 @@ server.registerTool(
 );
 
 // ============================================================
-// 工具 13: diagnose — 环境诊断
+// 工具 14: diagnose — 环境诊断
 // ============================================================
 server.registerTool(
   "diagnose",
@@ -658,7 +693,7 @@ server.registerTool(
 );
 
 // ============================================================
-// 工具 14: kill_all_terminals — 终止所有终端
+// 工具 15: kill_all_terminals — 终止所有终端
 // ============================================================
 server.registerTool(
   "kill_all_terminals",
@@ -704,7 +739,7 @@ async function runServer() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("lg_termX MCP Server 已启动 (stdio)");
-  console.error("提供 14 个工具: create_terminal, select_terminal, list_terminals, kill_terminal, set_timeout, send_command, get_last_output, get_all_output, clear_output, get_current_terminal, rename_terminal, get_terminal_info, diagnose, kill_all_terminals");
+  console.error("提供 15 个工具: create_terminal, select_terminal, list_terminals, kill_terminal, set_timeout, send_command, get_last_output, get_all_output, clear_output, send_key, get_current_terminal, rename_terminal, get_terminal_info, diagnose, kill_all_terminals");
 }
 
 // 优雅退出

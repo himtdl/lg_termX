@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## [1.0.4] - 2026-06-02
+
+### 新增
+- `send_key` 工具（第 15 个工具）：向终端发送控制键/组合键/文本
+  - 支持 `ctrl+a~z`、`enter`、`tab`、`esc`、`backspace`、`space`
+  - 支持方向键 `up/down/left/right` 及功能键 `home/end/pgup/pgdn/insert/delete`
+  - 支持自定义文本 `text:xxx`
+  - PTY 和 SSH2 双引擎一致支持，不等待返回结果，立即响应
+  - 解决卡死命令场景：`top`、`ping`、`tail -f` 等可通过 `send_key("ctrl+c")` 打断
+
 ## [1.0.3] - 2026-06-02
 
 ### 新增

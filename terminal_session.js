@@ -537,6 +537,82 @@ export class TerminalSession {
   }
 
   // ════════════════════════════════════════════════
+  //  控制键发送
+  // ════════════════════════════════════════════════
+
+  /**
+   * 向终端发送控制键/组合键/文本
+   * @param {string} key - 键名，如 "ctrl+c" "enter" "up" "text:hello"
+   */
+  sendKey(key) {
+    const bytes = this._resolveKey(key);
+    if (bytes === null) {
+      throw new Error(`不支持的按键: "${key}"。支持: ctrl+a~z, enter, tab, esc, backspace, space, up/down/left/right, home/end/pgup/pgdn/insert/delete, text:xxx`);
+    }
+
+    if (this._engine === "ssh2") {
+      if (!this._sshShell || !this._sshShell.writable) {
+        throw new Error(`终端 "${this.name}" 连接已断开`);
+      }
+      this._sshShell.write(bytes);
+      this._writeLog(`>>> [按键] ${key}`);
+    } else {
+      if (!this._ptyProcess) {
+        throw new Error(`终端 "${this.name}" 未运行`);
+      }
+      this._ptyProcess.write(bytes);
+      this._writeLog(`>>> [按键] ${key}`);
+    }
+    this.lastActivityTime = Date.now();
+    return "OK";
+  }
+
+  /**
+   * 解析键名到字节
+   * @param {string} key
+   * @returns {string|null}
+   */
+  _resolveKey(key) {
+    // 控制字符 ctrl+a ~ ctrl+z → \x01 ~ \x1a
+    const ctrlMatch = key.match(/^ctrl\+([a-z])$/i);
+    if (ctrlMatch) {
+      const ch = ctrlMatch[1].toLowerCase();
+      if (ch >= 'a' && ch <= 'z') {
+        return String.fromCharCode(ch.charCodeAt(0) - 96);
+      }
+    }
+
+    // 预定义按键
+    const MAP = {
+      enter: "\r",
+      tab: "\t",
+      esc: "\x1b",
+      backspace: "\x7f",
+      space: " ",
+      up: "\x1b[A",
+      down: "\x1b[B",
+      left: "\x1b[D",
+      right: "\x1b[C",
+      home: "\x1b[H",
+      end: "\x1b[F",
+      pgup: "\x1b[5~",
+      pgdn: "\x1b[6~",
+      insert: "\x1b[2~",
+      delete: "\x1b[3~",
+    };
+    if (MAP[key.toLowerCase()]) {
+      return MAP[key.toLowerCase()];
+    }
+
+    // 自定义文本 text:xxx
+    if (key.startsWith("text:")) {
+      return key.slice(5);
+    }
+
+    return null;
+  }
+
+  // ════════════════════════════════════════════════
   //  输出方法
   // ════════════════════════════════════════════════
 
