@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## [1.0.3] - 2026-06-02
+
+### 新增
+- 日志 ANSI 过滤：默认通过 `stripAnsi()` 过滤终端控制序列（CSI/OSC 转义码），日志可读性大幅提升
+- `create_terminal` 新增 `log_raw` 参数（默认 `false`），设为 `true` 时保留原始字节流（用于调试 node-pty）
+
+### 修改
+- `terminal_manager.js`：PTY 创建逻辑兼容新调用格式（`{ engine: "pty", ... }` 对象）
+
 ## [1.0.2] - 2026-06-02
 
 ### 修复

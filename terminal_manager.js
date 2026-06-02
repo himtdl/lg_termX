@@ -69,8 +69,13 @@ export class TerminalManager {
 
     let config;
     if (typeof configOrShell === "object") {
-      // SSH2 模式：config = { engine: "ssh2", host, port, username, password }
-      config = configOrShell;
+      if (configOrShell.engine === "pty") {
+        // PTY 模式（新调用方式，带 logRaw 等扩展参数）
+        config = { engine: "pty", shell: configOrShell.shell, cwd, logRaw: configOrShell.logRaw };
+      } else {
+        // SSH2 模式：config = { engine: "ssh2", host, port, username, password }
+        config = configOrShell;
+      }
     } else {
       // PTY 模式（兼容旧调用）：configOrShell 是 shell 字符串
       config = {

@@ -15,6 +15,8 @@
 - ✅ 一条命令的输出自动作为下一条命令的输入上下文
 - ✅ 完美支持 SSH 登录后的连续操作（如交互式堡垒机跳转）
 - ✅ 空闲自动关闭，安全可控
+- ✅ **日志溯源**：自动记录所有命令和输出到 `log/` 目录，支持 ANSI 控制序列过滤
+- ✅ **中文无乱码**：自动注入 UTF-8 编码切换 + GBK 兜底转码
 
 ---
 
@@ -48,7 +50,7 @@
 #### 1. 克隆项目
 
 ```bash
-git clone https://github.com/your-username/lg_termX.git
+git clone https://github.com/himtdl/lg_termX.git
 cd lg_termX
 ```
 
@@ -146,7 +148,7 @@ npm install
 
 | 工具 | 描述 | 关键参数 |
 |------|------|---------|
-| `create_terminal` | 创建新终端（PTY 或 SSH2） | `name` `shell` `cwd` `ssh_config` |
+| `create_terminal` | 创建新终端（PTY 或 SSH2） | `name` `shell` `cwd` `ssh_config` `log_raw` |
 | `kill_terminal` | 终止并删除指定终端 | `name` |
 | `kill_all_terminals` | 一键终止所有终端 | — |
 | `rename_terminal` | 重命名终端 | `old_name` `new_name` |
@@ -158,7 +160,7 @@ npm install
 | `select_terminal` | 切换当前操作终端 | `name` |
 | `list_terminals` | 列出所有终端及状态 | — |
 | `get_current_terminal` | 查看当前选中终端 | — |
-| `get_terminal_info` | 获取终端详细信息 | `name`（可选） |
+| `get_terminal_info` | 获取终端详细信息（含日志路径） | `name`（可选） |
 | `set_timeout` | 设置空闲超时（默认5分钟） | `name` `timeout_ms` |
 
 ### 命令与输出
@@ -178,17 +180,45 @@ npm install
 
 ---
 
+## 📖 日志溯源
+
+v1.0.3 新增日志功能，每次创建终端时自动在 `log/` 目录生成日志文件：
+
+- 文件名格式：`{终端名称}_{YYYY-MM-DD_HH-mm-ss}.log`
+- 记录所有发送的命令（`>>> 指令`）和接收的输出（`<<< 内容`）
+- 默认过滤 ANSI 终端控制序列，日志清晰可读
+- 如需保留原始字节流（调试 node-pty），设置 `create_terminal` 的 `log_raw = true`
+- 终端关闭时自动写入关闭标记
+- 可通过 `get_terminal_info` 获取 `logPath` 字段查看日志文件路径
+
+**日志示例：**
+```
+[10:30:01] [lg_termX v1.0.3] 终端 "demo" 日志开始 (引擎: pty)
+[10:30:01] >>> [系统] 注入UTF-8编码切换
+[10:30:05] >>> dir C:\
+[10:30:05] <<<  驱动器 C 中的卷是 Windows
+ 目录: C:\
+2026/06/02  10:30    <DIR>        Windows
+...
+[10:31:00] [关闭] 终端 "demo" 日志结束
+```
+
+---
+
 ## 📁 项目结构
 
 ```
 lg_termX/
 ├── index.js                # MCP 服务入口（14个工具注册）
 ├── terminal_manager.js     # 终端管理器（生命周期、超时扫描）
-├── terminal_session.js     # 终端会话（双引擎实现）
+├── terminal_session.js     # 终端会话（双引擎实现 + 日志系统）
 ├── package.json
 ├── package-lock.json
 ├── README.md
-└── LICENSE
+├── CHANGELOG.md
+├── LICENSE
+└── log/                    # 日志目录（运行时自动创建）
+    └── {name}_{时间}.log   # 终端操作溯源日志
 ```
 
 ---

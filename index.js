@@ -26,7 +26,7 @@ const manager = new TerminalManager();
 
 const server = new McpServer({
   name: "lg_termX",
-  version: "1.0.2",
+  version: "1.0.3",
 });
 
 // ============================================================
@@ -51,6 +51,11 @@ server.registerTool(
         .string()
         .optional()
         .describe("工作目录（仅PTY模式）"),
+      log_raw: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe("是否在日志中保留原始 ANSI 控制序列（默认 false 即过滤，调试 node-pty 时可设为 true）"),
       ssh_config: z
         .object({
           host: z.string(),
@@ -85,9 +90,14 @@ server.registerTool(
           port: args.ssh_config.port || 22,
           username: args.ssh_config.username,
           password: args.ssh_config.password,
+          logRaw: args.log_raw || false,
         };
       } else {
-        configOrShell = args.shell || "cmd.exe";
+        configOrShell = {
+          engine: "pty",
+          shell: args.shell || "cmd.exe",
+          logRaw: args.log_raw || false,
+        };
       }
       const cwd = args.ssh_config ? null : (args.cwd || null);
       const info = await manager.createTerminal(args.name, configOrShell, cwd);

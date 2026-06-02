@@ -53,6 +53,22 @@ function safeDecode(buf) {
 }
 
 /**
+ * 过滤 ANSI 终端控制序列（CSI / OSC / 其他转义码）
+ * 这些序列是终端渲染指令（光标、清屏、标题、粘贴模式等），
+ * 在纯文本日志中无意义且极度干扰阅读，默认过滤。
+ * 如需保留原始字节流（调试 node-pty 输出），设置 log_raw = true。
+ * @param {string} str
+ * @returns {string}
+ */
+function stripAnsi(str) {
+  return str
+    .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "")   // CSI: Esc[n;mH
+    .replace(/\x1b\][^\x07]*\x07/g, "")         // OSC: Esc]0;...BEL
+    .replace(/\x1b\][^\x1b]*\x1b\\/g, "")       // OSC: Esc]...ST
+    .replace(/\x1b[PX^_][^\x1b]*\x1b\\/g, "");  // 其他: SOS/PM/APC 等
+}
+
+/**
  * 生成唯一的命令结束标记
  * @param {number} counter
  * @returns {string}
@@ -117,6 +133,8 @@ export class TerminalSession {
     this._logPath = null;
     /** @type {fs.WriteStream|null} */
     this._logStream = null;
+    /** @type {boolean} 是否保留原始字节流（含ANSI控制序列），默认false即过滤 */
+    this._logRaw = !!config.logRaw;
     this._initLog();
   }
 
@@ -151,7 +169,7 @@ export class TerminalSession {
       const safeName = this.name.replace(/[\\/:*?"<>|]/g, "_");
       this._logPath = path.join(logDir, `${safeName}_${ts}.log`);
       this._logStream = fs.createWriteStream(this._logPath, { flags: "a" });
-      this._writeLog(`[lg_termX v1.0.2] 终端 "${this.name}" 日志开始 (引擎: ${this._engine})`);
+      this._writeLog(`[lg_termX v1.0.3] 终端 "${this.name}" 日志开始 (引擎: ${this._engine})`);
     } catch (e) {
       console.error(`[lg_termX] 日志初始化失败: ${e.message}`);
     }
@@ -227,7 +245,8 @@ export class TerminalSession {
         ptyProcess.onData((data) => {
           const decoded = safeDecode(data);
           this.outputBuffer.push(decoded);
-          this._writeLog(`<<< ${decoded.trimEnd()}`);
+          const clean = this._logRaw ? decoded : stripAnsi(decoded);
+          this._writeLog(`<<< ${clean.trimEnd()}`);
           this.lastActivityTime = Date.now();
         });
 
@@ -351,7 +370,8 @@ export class TerminalSession {
 
                   this.lastCommandOutput = combined;
 
-                  this._writeLog(`<<< ${combined.trimEnd()}`);
+                  const clean = this._logRaw ? combined : stripAnsi(combined);
+                  this._writeLog(`<<< ${clean.trimEnd()}`);
 
                   // 重置缓冲区
                   this._sshStdout = "";
