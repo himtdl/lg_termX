@@ -1,41 +1,40 @@
 # CHANGELOG
 
+## [1.0.5] - 2026-06-02
+
+### 新增
+- `send_command_async` 工具（第 16 个工具）：异步发送命令，立即返回不等待结果
+  - 适用于 `npm install`、`git clone`、构建、下载等长时间任务
+  - 发送后可通过 `get_last_output`/`get_all_output` 轮询结果
+- `send_command` 新增 `timeout_ms` 参数：覆盖默认超时（PTY 30s / SSH2 60s）
+- 输出容量保护（防止 `top`/`ping` 等无限输出撑爆内存/Token）：
+  - PTY `outputBuffer` 上限 200 条目，超出自动丢弃前半
+  - SSH2 `_sshStdout` 上限 100KB，超出保留后半
+  - 命令返回值上限 5000 字符，超出截断并提示查看日志
+
+### 修复
+- SSH2 `send_command` 超时时保存中途输出到 `outputBuffer`（不再丢弃）
+- `package.json` keywords 扩充为 14 个
+
 ## [1.0.4] - 2026-06-02
 
 ### 新增
 - `send_key` 工具（第 15 个工具）：向终端发送控制键/组合键/文本
-  - 支持 `ctrl+a~z`、`enter`、`tab`、`esc`、`backspace`、`space`
-  - 支持方向键 `up/down/left/right` 及功能键 `home/end/pgup/pgdn/insert/delete`
-  - 支持自定义文本 `text:xxx`
-  - PTY 和 SSH2 双引擎一致支持，不等待返回结果，立即响应
-  - 解决卡死命令场景：`top`、`ping`、`tail -f` 等可通过 `send_key("ctrl+c")` 打断
 
 ## [1.0.3] - 2026-06-02
 
 ### 新增
-- 日志 ANSI 过滤：默认通过 `stripAnsi()` 过滤终端控制序列（CSI/OSC 转义码），日志可读性大幅提升
-- `create_terminal` 新增 `log_raw` 参数（默认 `false`），设为 `true` 时保留原始字节流（用于调试 node-pty）
-
-### 修改
-- `terminal_manager.js`：PTY 创建逻辑兼容新调用格式（`{ engine: "pty", ... }` 对象）
+- 日志 ANSI 过滤 + `log_raw` 参数
 
 ## [1.0.2] - 2026-06-02
 
 ### 修复
-- PTY 引擎中文乱码：Windows cmd.exe 默认 GBK (CP936) 编码自动转 UTF-8
-  - 启动终端时注入 `chcp 65001 > nul` (cmd) 或 `$OutputEncoding = [Console]::OutputEncoding = [Text.Encoding]::UTF8` (powershell)
-  - `onData` 回调增加兜底检测：非法 UTF-8 字符自动回退 `TextDecoder('gbk')` 解码
+- PTY 引擎中文 GBK 乱码
 
 ### 新增
-- 日志溯源：每个终端启动时自动在 `log/` 目录创建 `{name}_{YYYY-MM-DD_HH-mm-ss}.log` 日志文件
-  - 记录所有发送的命令 (`>>> 指令`) 和接收的输出 (`<<< 内容`)
-  - 终端关闭时自动写入关闭标记并关闭日志流
-  - `getInfo()` / `get_terminal_info` 工具新增 `logPath` 字段，可查看日志文件路径
-- 工具描述强约束：`create_terminal` 和 `send_command` 的 description 追加 ⚠️ 提醒，要求 AI 使用完毕后必须关闭终端
+- 日志溯源 (`log/` 目录) + 工具描述强约束
 
 ## [1.0.0] - 2026-06-01
 
 ### 新增
-- 首次发布：PTY + SSH2 双引擎终端管理 MCP 服务
-- 14 个工具：create_terminal, select_terminal, list_terminals, kill_terminal, set_timeout, send_command, get_last_output, get_all_output, clear_output, get_current_terminal, rename_terminal, get_terminal_info, diagnose, kill_all_terminals
-- 支持空闲超时自动回收（默认 5 分钟）
+- 首次发布：PTY + SSH2 双引擎 + 14 个工具

@@ -169,7 +169,7 @@ export class TerminalSession {
       const safeName = this.name.replace(/[\\/:*?"<>|]/g, "_");
       this._logPath = path.join(logDir, `${safeName}_${ts}.log`);
       this._logStream = fs.createWriteStream(this._logPath, { flags: "a" });
-      this._writeLog(`[lg_termX v1.0.3] 终端 "${this.name}" 日志开始 (引擎: ${this._engine})`);
+      this._writeLog(`[lg_termX v1.0.5] 终端 "${this.name}" 日志开始 (引擎: ${this._engine})`);
     } catch (e) {
       console.error(`[lg_termX] 日志初始化失败: ${e.message}`);
     }
@@ -244,6 +244,10 @@ export class TerminalSession {
 
         ptyProcess.onData((data) => {
           const decoded = safeDecode(data);
+          // 容量保护：限制 outputBuffer 最多 200 条目（防止 top 等无限输出撑爆内存）
+          if (this.outputBuffer.length > 200) {
+            this.outputBuffer.splice(0, 100);
+          }
           this.outputBuffer.push(decoded);
           const clean = this._logRaw ? decoded : stripAnsi(decoded);
           this._writeLog(`<<< ${clean.trimEnd()}`);
@@ -331,6 +335,10 @@ export class TerminalSession {
               }
 
               this._sshStdout += text;
+              // 容量保护：_sshStdout 上限 100KB
+              if (this._sshStdout.length > 100000) {
+                this._sshStdout = this._sshStdout.slice(-50000);
+              }
               this.lastActivityTime = Date.now();
 
               // 检查 delimiter
@@ -368,7 +376,15 @@ export class TerminalSession {
                     timestamp: Date.now(),
                   });
 
-                  this.lastCommandOutput = combined;
+                  // 返回值截断
+                  const truncated = this._truncateOutput(combined);
+                  this.lastCommandOutput = truncated;
+
+                  // resolve 用截断后的值
+                  const resolveFn = this._sshPendingResolve;
+                  this._sshPendingResolve = null;
+                  this._sshPendingCommand = "";
+                  resolveFn(truncated);
 
                   const clean = this._logRaw ? combined : stripAnsi(combined);
                   this._writeLog(`<<< ${clean.trimEnd()}`);
@@ -376,11 +392,6 @@ export class TerminalSession {
                   // 重置缓冲区
                   this._sshStdout = "";
                   this._sshStderr = "";
-
-                  const resolveFn = this._sshPendingResolve;
-                  this._sshPendingResolve = null;
-                  this._sshPendingCommand = "";
-                  resolveFn(combined);
                 }
               }
             });
@@ -440,18 +451,53 @@ export class TerminalSession {
    * 发送命令到终端
    * @param {string} command
    * @param {number} waitMs - （PTY 模式）最小等待时间
+   * @param {number|null} timeoutMs - 超时毫秒，覆盖默认值
    * @returns {Promise<string>}
    */
-  sendCommand(command, waitMs = 2000) {
+  sendCommand(command, waitMs = 2000, timeoutMs = null) {
     this._writeLog(`>>> ${command}`);
     if (this._engine === "ssh2") {
-      return this._sendSsh2(command);
+      return this._sendSsh2(command, timeoutMs);
     }
-    return this._sendPty(command, waitMs);
+    return this._sendPty(command, waitMs, timeoutMs);
+  }
+
+  /**
+   * 异步发送命令：立即返回，不等待执行结果
+   * 适用于 npm install、git clone、构建等长时间任务
+   * @param {string} command
+   * @returns {string}
+   */
+  sendCommandAsync(command) {
+    this._writeLog(`>>> [异步] ${command}`);
+    if (this._engine === "ssh2") {
+      if (!this._sshShell || !this._sshShell.writable) {
+        throw new Error(`终端 "${this.name}" 连接已断开`);
+      }
+      // SSH2 异步：只写命令+换行，不加 delimiter echo（不等待结果）
+      this._sshShell.write(command + "\n");
+    } else {
+      if (!this._ptyProcess) {
+        throw new Error(`终端 "${this.name}" 未运行`);
+      }
+      this._recordBoundary();
+      this._ptyProcess.write(command + "\r\n");
+    }
+    this.lastActivityTime = Date.now();
+    return "命令已发送（异步执行）。请使用 get_last_output/get_all_output 轮询结果";
+  }
+
+  /** 返回值截断上限（防止百万行输出撑爆 token） */
+  _truncateOutput(output) {
+    const limit = 5000;
+    if (output.length > limit) {
+      return output.slice(0, limit) + `\n\n... [输出过长已截断，共 ${output.length} 字符，完整内容见日志文件]`;
+    }
+    return output;
   }
 
   // —— PTY 发送 ——
-  _sendPty(command, waitMs) {
+  _sendPty(command, waitMs, timeoutMs) {
     return new Promise((resolve, reject) => {
       if (!this.isRunning || !this._ptyProcess) {
         return reject(new Error(`终端 "${this.name}" 未运行`));
@@ -468,7 +514,7 @@ export class TerminalSession {
       }
 
       const minWaitMs = Math.max(waitMs, 500);
-      const maxWaitMs = 30000;
+      const maxWaitMs = (timeoutMs && timeoutMs > 0) ? timeoutMs : 30000;
       const pollIntervalMs = 300;
       const stableThresholdMs = 2000;
 
@@ -488,7 +534,8 @@ export class TerminalSession {
         const isStable = elapsed >= minWaitMs && stableTime >= stableThresholdMs;
         const isTimeout = elapsed >= maxWaitMs;
         if (isStable || isTimeout) {
-          const newOutput = this.outputBuffer.slice(startIdx).join("");
+          const rawOutput = this.outputBuffer.slice(startIdx).join("");
+          const newOutput = this._truncateOutput(rawOutput);
           this.lastCommandOutput = newOutput;
           this.lastActivityTime = Date.now();
           resolve(newOutput || "(无输出)");
@@ -501,7 +548,7 @@ export class TerminalSession {
   }
 
   // —— SSH2 发送（delimiter + echo，参考 ssh-terminal 设计） ——
-  _sendSsh2(command) {
+  _sendSsh2(command, timeoutMs) {
     return new Promise((resolve, reject) => {
       if (!this.isRunning || !this._sshShell || !this._sshShell.writable) {
         return reject(new Error(`终端 "${this.name}" 连接已断开`));
@@ -526,13 +573,24 @@ export class TerminalSession {
         return;
       }
 
-      // 超时保护：60秒
+      // 超时保护（默认 60 秒，可通过 timeoutMs 覆盖）
+      const ttl = (timeoutMs && timeoutMs > 0) ? timeoutMs : 60000;
       setTimeout(() => {
         if (this._sshPendingResolve) {
+          // 超时前保存已接收的输出（不丢弃）
+          const raw = this._sshStdout.trimEnd();
+          if (raw) {
+            const clean = this._logRaw ? raw : stripAnsi(raw);
+            this.outputBuffer.push(raw + "\n");
+            this.lastCommandOutput = this._truncateOutput(raw);
+            this._writeLog(`<<< [超时截断] ${clean.trimEnd()}`);
+          }
+          this._sshStdout = "";
+          this._sshStderr = "";
           this._sshPendingResolve = null;
-          reject(new Error(`命令 "${command}" 执行超时（60秒）`));
+          reject(new Error(`命令 "${command}" 执行超时（${ttl / 1000}秒），已保存中途输出`));
         }
-      }, 60000);
+      }, ttl);
     });
   }
 

@@ -1,6 +1,6 @@
 {
   "name": "lg_termx",
-  "version": "1.0.0",
+  "version": "1.0.5",
   "description": "老高之家 MCP 终端管理服务器 — 持久化命令行终端，支持 SSH 等需要连续交互的场景",
   "type": "module",
   "main": "index.js",
@@ -17,8 +17,18 @@
   "license": "MIT",
   "keywords": [
     "mcp",
+    "mcp-server",
     "terminal",
     "ssh",
-    "shell"
+    "pty",
+    "cmd",
+    "powershell",
+    "windows",
+    "cli",
+    "automation",
+    "ai-tools",
+    "cline",
+    "continuous-terminal",
+    "node-pty"
   ]
 }

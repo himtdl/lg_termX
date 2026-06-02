@@ -226,12 +226,25 @@ export class TerminalManager {
    * @param {number} waitMs
    * @returns {Promise<string>}
    */
-  async sendToCurrent(command, waitMs = 2000) {
+  async sendToCurrent(command, waitMs = 2000, timeoutMs = null) {
     const session = this._getCurrentSession();
     if (!session.isRunning) {
       throw new Error(`终端 "${session.name}" 已停止，请重新创建`);
     }
-    return session.sendCommand(command, waitMs);
+    return session.sendCommand(command, waitMs, timeoutMs);
+  }
+
+  /**
+   * 异步发送命令：立即返回，不等待执行结果
+   * @param {string} command
+   * @returns {string}
+   */
+  sendToCurrentAsync(command) {
+    const session = this._getCurrentSession();
+    if (!session.isRunning) {
+      throw new Error(`终端 "${session.name}" 已停止，请重新创建`);
+    }
+    return session.sendCommandAsync(command);
   }
 
   /**

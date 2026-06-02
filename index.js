@@ -26,7 +26,7 @@ const manager = new TerminalManager();
 
 const server = new McpServer({
   name: "lg_termX",
-  version: "1.0.4",
+  version: "1.0.5",
 });
 
 // ============================================================
@@ -313,13 +313,17 @@ server.registerTool(
         .optional()
         .default(2000)
         .describe("发送后等待时间（毫秒），等待命令执行出结果。对于耗时操作可增大此值"),
+      timeout_ms: z
+        .number()
+        .optional()
+        .describe("超时时间（毫秒）。超过此时间强制返回，覆盖默认 60s(SSH2)/30s(PTY)。设 0 或不传使用默认值"),
     },
     outputSchema: { output: z.string() },
     annotations: { readOnlyHint: false, destructiveHint: false },
   },
   async (args) => {
     try {
-      const output = await manager.sendToCurrent(args.command, args.wait_ms);
+      const output = await manager.sendToCurrent(args.command, args.wait_ms, args.timeout_ms || null);
       return {
         content: [{ type: "text", text: output }],
         structuredContent: { output },
@@ -334,7 +338,48 @@ server.registerTool(
 );
 
 // ============================================================
-// 工具 7: get_last_output — 获取上次命令的输出
+// 工具 7: send_command_async — 异步发送命令
+// ============================================================
+server.registerTool(
+  "send_command_async",
+  {
+    title: "异步发送命令",
+    description:
+      "向当前终端发送命令，立即返回不等待执行结果。适用于 npm install、git clone、构建、下载等长时间任务。完成后可通过 get_last_output/get_all_output 轮询结果。",
+    inputSchema: {
+      command: z.string().describe("要异步执行的命令"),
+    },
+    outputSchema: { result: z.string() },
+    annotations: { readOnlyHint: false, destructiveHint: false },
+  },
+  async (args) => {
+    try {
+      const result = manager.sendToCurrentAsync(args.command);
+      return {
+        content: [
+          {
+            type: "text",
+            text: result,
+          },
+        ],
+        structuredContent: { result },
+      };
+    } catch (e) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `发送失败: ${e.message}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// ============================================================
+// 工具 8: get_last_output — 获取上次命令的输出
 // ============================================================
 server.registerTool(
   "get_last_output",
@@ -367,7 +412,7 @@ server.registerTool(
 );
 
 // ============================================================
-// 工具 8: get_all_output — 获取所有输出
+// 工具 9: get_all_output — 获取所有输出
 // ============================================================
 server.registerTool(
   "get_all_output",
@@ -406,7 +451,7 @@ server.registerTool(
 );
 
 // ============================================================
-// 工具 9: clear_output — 清空输出缓冲区
+// 工具 10: clear_output — 清空输出缓冲区
 // ============================================================
 server.registerTool(
   "clear_output",
@@ -439,7 +484,7 @@ server.registerTool(
 );
 
 // ============================================================
-// 工具 10: send_key — 发送控制键
+// 工具 11: send_key — 发送控制键
 // ============================================================
 server.registerTool(
   "send_key",
@@ -474,7 +519,7 @@ server.registerTool(
 );
 
 // ============================================================
-// 工具 11: get_current_terminal — 获取当前终端名称
+// 工具 12: get_current_terminal — 获取当前终端名称
 // ============================================================
 server.registerTool(
   "get_current_terminal",
@@ -513,7 +558,7 @@ server.registerTool(
 );
 
 // ============================================================
-// 工具 12: rename_terminal — 重命名终端
+// 工具 13: rename_terminal — 重命名终端
 // ============================================================
 server.registerTool(
   "rename_terminal",
@@ -554,7 +599,7 @@ server.registerTool(
 );
 
 // ============================================================
-// 工具 13: get_terminal_info — 获取终端详细信息
+// 工具 14: get_terminal_info — 获取终端详细信息
 // ============================================================
 server.registerTool(
   "get_terminal_info",
@@ -615,7 +660,7 @@ server.registerTool(
 );
 
 // ============================================================
-// 工具 14: diagnose — 环境诊断
+// 工具 15: diagnose — 环境诊断
 // ============================================================
 server.registerTool(
   "diagnose",
@@ -693,7 +738,7 @@ server.registerTool(
 );
 
 // ============================================================
-// 工具 15: kill_all_terminals — 终止所有终端
+// 工具 16: kill_all_terminals — 终止所有终端
 // ============================================================
 server.registerTool(
   "kill_all_terminals",
@@ -739,7 +784,7 @@ async function runServer() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("lg_termX MCP Server 已启动 (stdio)");
-  console.error("提供 15 个工具: create_terminal, select_terminal, list_terminals, kill_terminal, set_timeout, send_command, get_last_output, get_all_output, clear_output, send_key, get_current_terminal, rename_terminal, get_terminal_info, diagnose, kill_all_terminals");
+  console.error("提供 16 个工具: create_terminal, select_terminal, list_terminals, kill_terminal, set_timeout, send_command, send_command_async, get_last_output, get_all_output, clear_output, send_key, get_current_terminal, rename_terminal, get_terminal_info, diagnose, kill_all_terminals");
 }
 
 // 优雅退出
